@@ -1,0 +1,71 @@
+name: Build VideoX PC (Windows)
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    name: Build Windows MSI
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+      - uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: "8.14.3"
+      - name: Fetch sidecar binaries (pinned + SHA-256 checked)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $toolsDir = "desktop-resources/windows-x64"
+          New-Item -ItemType Directory -Force -Path $toolsDir | Out-Null
+          # yt-dlp 2026.10.26 (pinned; hash from the release's SHA2-256SUMS,
+          # verified 2026-11-15). Re-pin hash + version together when updating.
+          $ytDlpUrl = "https://github.com/yt-dlp/yt-dlp/releases/download/2026.10.26/yt-dlp.exe"
+          $ytDlpHash = "f5389d3698ecde4ef06f4e6b1ce0294fe9ac1396228c8990b8d3416d6d177a7d"
+          Invoke-WebRequest -Uri $ytDlpUrl -OutFile "$toolsDir/yt-dlp.exe"
+          $actual = (Get-FileHash "$toolsDir/yt-dlp.exe" -Algorithm SHA256).Hash.ToLower()
+          if ($actual -ne $ytDlpHash) { throw "yt-dlp.exe hash mismatch: $actual" }
+          # FFmpeg 9.0.2 release essentials, gyan.dev (pinned hash from the
+          # published .sha256 file, verified 2026-11-15). The zip's inner
+          # folder carries the version, so the exes are found recursively.
+          $ffmpegUrl = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
+          $ffmpegHash = "60f467265b1e312373dbcd92200c2618a74850f98d3d078e94296bb3fa2047ba"
+          Invoke-WebRequest -Uri $ffmpegUrl -OutFile "ffmpeg.zip"
+          $actual = (Get-FileHash "ffmpeg.zip" -Algorithm SHA256).Hash.ToLower()
+          if ($actual -ne $ffmpegHash) { throw "ffmpeg zip hash mismatch: $actual" }
+          Expand-Archive -Path "ffmpeg.zip" -DestinationPath "ffmpeg-extracted" -Force
+          Get-ChildItem -Recurse -Filter "ffmpeg.exe" "ffmpeg-extracted" |
+            Select-Object -First 1 | Copy-Item -Destination "$toolsDir/ffmpeg.exe"
+          Get-ChildItem -Recurse -Filter "ffprobe.exe" "ffmpeg-extracted" |
+            Select-Object -First 1 | Copy-Item -Destination "$toolsDir/ffprobe.exe"
+          Get-ChildItem "$toolsDir" | ForEach-Object { Write-Host "$($_.Name) $($_.Length) bytes" }
+      - name: Test and package
+        run: gradle test packageMsi createDistributable --stacktrace
+      - name: Headless smoke test on the packaged app
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = Get-ChildItem -Recurse -Filter "VideoX.exe" "app/build/compose/binaries" |
+            Select-Object -First 1
+          if ($null -eq $exe) {
+            Get-ChildItem -Recurse "app/build/compose/binaries" | ForEach-Object { Write-Host $_.FullName }
+            throw "VideoX.exe was not found under app/build/compose/binaries"
+          }
+          Write-Host "Running selftest: $($exe.FullName)"
+          & $exe.FullName --selftest
+          if ($LASTEXITCODE -ne 0) { throw "VideoX --selftest failed with exit code $LASTEXITCODE" }
+      - name: List packaged outputs
+        shell: pwsh
+        run: Get-ChildItem -Recurse "app/build/compose/binaries" | ForEach-Object { Write-Host $_.FullName }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: videox-pc-msi
+          path: app/build/compose/binaries/main/msi/
+          retention-days: 30
