@@ -45,7 +45,7 @@ fun PremiumCard(content: @Composable ColumnScope.() -> Unit) {
 }
 
 @Composable
-fun PrimaryButton(text: String, onClick: () -> Unit, enabled: Boolean = true) {
+fun PrimaryButton(text: String, enabled: Boolean = true, onClick: () -> Unit) {
     Button(
         onClick = onClick,
         enabled = enabled,
@@ -60,7 +60,7 @@ fun PrimaryButton(text: String, onClick: () -> Unit, enabled: Boolean = true) {
 }
 
 @Composable
-fun SecondaryButton(text: String, onClick: () -> Unit, enabled: Boolean = true) {
+fun SecondaryButton(text: String, enabled: Boolean = true, onClick: () -> Unit) {
     OutlinedButton(
         onClick = onClick,
         enabled = enabled,
