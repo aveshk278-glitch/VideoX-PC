@@ -25,16 +25,11 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $toolsDir = "desktop-resources/windows-x64"
           New-Item -ItemType Directory -Force -Path $toolsDir | Out-Null
-          # yt-dlp 2026.10.26 (pinned; hash from the release's SHA2-256SUMS,
-          # verified 2026-11-15). Re-pin hash + version together when updating.
           $ytDlpUrl = "https://github.com/yt-dlp/yt-dlp/releases/download/2026.10.26/yt-dlp.exe"
           $ytDlpHash = "f5389d3698ecde4ef06f4e6b1ce0294fe9ac1396228c8990b8d3416d6d177a7d"
           Invoke-WebRequest -Uri $ytDlpUrl -OutFile "$toolsDir/yt-dlp.exe"
           $actual = (Get-FileHash "$toolsDir/yt-dlp.exe" -Algorithm SHA256).Hash.ToLower()
           if ($actual -ne $ytDlpHash) { throw "yt-dlp.exe hash mismatch: $actual" }
-          # FFmpeg 9.0.2 release essentials, gyan.dev (pinned hash from the
-          # published .sha256 file, verified 2026-11-15). The zip's inner
-          # folder carries the version, so the exes are found recursively.
           $ffmpegUrl = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
           $ffmpegHash = "60f467265b1e312373dbcd92200c2618a74850f98d3d078e94296bb3fa2047ba"
           Invoke-WebRequest -Uri $ffmpegUrl -OutFile "ffmpeg.zip"
@@ -59,8 +54,16 @@ jobs:
             throw "VideoX.exe was not found under app/build/compose/binaries"
           }
           Write-Host "Running selftest: $($exe.FullName)"
-          & $exe.FullName --selftest
-          if ($LASTEXITCODE -ne 0) { throw "VideoX --selftest failed with exit code $LASTEXITCODE" }
+          $out = Join-Path $env:RUNNER_TEMP "videox-selftest.log"
+          $p = Start-Process -FilePath $exe.FullName -ArgumentList "--selftest" -Wait -PassThru -NoNewWindow -RedirectStandardOutput $out -RedirectStandardError $out
+          $deadline = (Get-Date).AddSeconds(60)
+          while (-not (Select-String -Path $out -Pattern "SELFTEST:" -Quiet -ErrorAction SilentlyContinue)) {
+            if ((Get-Date) -gt $deadline) { break }
+            Start-Sleep -Seconds 2
+          }
+          Get-Content $out -ErrorAction SilentlyContinue
+          $passed = Select-String -Path $out -Pattern "SELFTEST: all checks passed." -Quiet -ErrorAction SilentlyContinue
+          if ($p.ExitCode -ne 0 -or -not $passed) { throw "VideoX --selftest failed (exit=$($p.ExitCode), passed=$passed)" }
       - name: List packaged outputs
         shell: pwsh
         run: Get-ChildItem -Recurse "app/build/compose/binaries" | ForEach-Object { Write-Host $_.FullName }
