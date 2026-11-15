@@ -54,15 +54,17 @@ jobs:
             throw "VideoX.exe was not found under app/build/compose/binaries"
           }
           Write-Host "Running selftest: $($exe.FullName)"
-          $out = Join-Path $env:RUNNER_TEMP "videox-selftest.log"
-          $p = Start-Process -FilePath $exe.FullName -ArgumentList "--selftest" -Wait -PassThru -NoNewWindow -RedirectStandardOutput $out -RedirectStandardError $out
+          $out = Join-Path $env:RUNNER_TEMP "videox-selftest-out.log"
+          $err = Join-Path $env:RUNNER_TEMP "videox-selftest-err.log"
+          $p = Start-Process -FilePath $exe.FullName -ArgumentList "--selftest" -Wait -PassThru -NoNewWindow -RedirectStandardOutput $out -RedirectStandardError $err
           $deadline = (Get-Date).AddSeconds(60)
-          while (-not (Select-String -Path $out -Pattern "SELFTEST:" -Quiet -ErrorAction SilentlyContinue)) {
+          while (-not ((Select-String -Path $out -Pattern "SELFTEST:" -Quiet -ErrorAction SilentlyContinue) -or (Select-String -Path $err -Pattern "SELFTEST:" -Quiet -ErrorAction SilentlyContinue))) {
             if ((Get-Date) -gt $deadline) { break }
             Start-Sleep -Seconds 2
           }
           Get-Content $out -ErrorAction SilentlyContinue
-          $passed = Select-String -Path $out -Pattern "SELFTEST: all checks passed." -Quiet -ErrorAction SilentlyContinue
+          Get-Content $err -ErrorAction SilentlyContinue
+          $passed = (Select-String -Path $out -Pattern "SELFTEST: all checks passed." -Quiet -ErrorAction SilentlyContinue) -or (Select-String -Path $err -Pattern "SELFTEST: all checks passed." -Quiet -ErrorAction SilentlyContinue)
           if ($p.ExitCode -ne 0 -or -not $passed) { throw "VideoX --selftest failed (exit=$($p.ExitCode), passed=$passed)" }
       - name: List packaged outputs
         shell: pwsh
